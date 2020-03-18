@@ -1,6 +1,5 @@
 package com.amazonaws.services.gamelift;
 
-import com.amazonaws.services.gamelift.model.AmazonGameLiftException;
 import com.amazonaws.services.gamelift.model.DescribePlayerSessionsRequest;
 import com.amazonaws.services.gamelift.model.DescribePlayerSessionsResult;
 import com.amazonaws.services.gamelift.model.GameSession;
@@ -77,7 +76,7 @@ public interface AmazonGameLiftServer {
    *
    * @param processParameters Parameters for the new game session.
    * @throws IllegalStateException If {@link #initSdk()} was not yet invoked.
-   * @throws AmazonGameLiftException If the server failed to response.
+   * @throws AmazonGameLiftServerException If the server failed to response.
    */
   void processReady(ProcessParameters processParameters);
 
@@ -88,7 +87,7 @@ public interface AmazonGameLiftServer {
    * asynchronously.
    *
    * @throws IllegalStateException If {@link #processReady(ProcessParameters)} was not yet invoked.
-   * @throws AmazonGameLiftException If the server failed to response.
+   * @throws AmazonGameLiftServerException If the server failed to response.
    */
   void processEnding();
 
@@ -103,7 +102,7 @@ public interface AmazonGameLiftServer {
    * Mark the game session as ready and accept player sessions.
    *
    * @throws IllegalStateException If {@link #getGameSessionId()} was null.
-   * @throws AmazonGameLiftException If the server failed to response.
+   * @throws AmazonGameLiftServerException If the server failed to response.
    */
   void activateGameSession();
 
@@ -114,7 +113,7 @@ public interface AmazonGameLiftServer {
    * session, or {@link #processEnding()} to queue a termination.
    *
    * @throws IllegalStateException If {@link #getGameSessionId()} was null.
-   * @throws AmazonGameLiftException If the server failed to response.
+   * @throws AmazonGameLiftServerException If the server failed to response.
    */
   void terminateGameSession();
 
@@ -123,7 +122,7 @@ public interface AmazonGameLiftServer {
    *
    * @param playerSessionCreationPolicy The creation policy of player sessions.
    * @throws IllegalStateException If {@link #getGameSessionId()} was null.
-   * @throws AmazonGameLiftException If the server failed to response.
+   * @throws AmazonGameLiftServerException If the server failed to response.
    */
   void updatePlayerSessionCreationPolicy(PlayerSessionCreationPolicy playerSessionCreationPolicy);
 
@@ -135,7 +134,7 @@ public interface AmazonGameLiftServer {
    *
    * @param playerSessionId The player session id.
    * @throws IllegalStateException If {@link #getGameSessionId()} was null.
-   * @throws AmazonGameLiftException If the server failed to response.
+   * @throws AmazonGameLiftServerException If the server failed to response.
    */
   void acceptPlayerSession(String playerSessionId);
 
@@ -144,7 +143,7 @@ public interface AmazonGameLiftServer {
    *
    * @param playerSessionId The player session id.
    * @throws IllegalStateException If {@link #getGameSessionId()} was null.
-   * @throws AmazonGameLiftException If the server failed to response.
+   * @throws AmazonGameLiftServerException If the server failed to response.
    */
   void removePlayerSession(String playerSessionId);
 
@@ -156,7 +155,7 @@ public interface AmazonGameLiftServer {
    * @param describePlayerSessionsRequest A request for player sessions.
    * @return A response of player sessions.
    * @throws IllegalStateException If {@link #initSdk()} is not yet invoked.
-   * @throws AmazonGameLiftException If the server failed to response.
+   * @throws AmazonGameLiftServerException If the server failed to response.
    */
   DescribePlayerSessionsResult describePlayerSessions(
       DescribePlayerSessionsRequest describePlayerSessionsRequest);
@@ -169,7 +168,7 @@ public interface AmazonGameLiftServer {
    *
    * @param startMatchBackfillRequest A request for new player sessions.
    * @throws IllegalStateException If {@link #initSdk()} is not yet invoked.
-   * @throws AmazonGameLiftException If the server failed to response.
+   * @throws AmazonGameLiftServerException If the server failed to response.
    */
   void startMatchBackfill(StartMatchBackfillRequest startMatchBackfillRequest);
 
@@ -178,7 +177,7 @@ public interface AmazonGameLiftServer {
    *
    * @param stopMatchBackfillRequest A request to stop a backfill.
    * @throws IllegalStateException If {@link #initSdk()} is not yet invoked.
-   * @throws AmazonGameLiftException If the server failed to response.
+   * @throws AmazonGameLiftServerException If the server failed to response.
    */
   void stopMatchBackfill(StopMatchBackfillRequest stopMatchBackfillRequest);
 

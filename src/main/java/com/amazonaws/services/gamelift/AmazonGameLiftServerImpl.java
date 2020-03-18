@@ -2,8 +2,6 @@ package com.amazonaws.services.gamelift;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import com.amazon.whitewater.auxproxy.pbuffer.Sdk;
-import com.amazonaws.services.gamelift.model.AmazonGameLiftException;
 import com.amazonaws.services.gamelift.model.DescribePlayerSessionsRequest;
 import com.amazonaws.services.gamelift.model.DescribePlayerSessionsResult;
 import com.amazonaws.services.gamelift.model.GameSession;
@@ -29,12 +27,14 @@ import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.TimeoutException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -250,7 +250,8 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
     Sdk.DescribePlayerSessionsRequest.Builder builder =
         Sdk.DescribePlayerSessionsRequest.newBuilder();
     if (request.getNextToken() != null) builder.setNextToken(request.getNextToken());
-    if (request.getLimit() != null) builder.setLimit(Math.max(1024, request.getLimit()));
+    if (request.getLimit() != null)
+      builder.setLimit(Math.max(1, Math.min(1024, request.getLimit())));
     if (request.getGameSessionId() != null) builder.setGameSessionId(request.getGameSessionId());
     if (request.getPlayerSessionId() != null)
       builder.setPlayerSessionId(request.getPlayerSessionId());
@@ -264,7 +265,7 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
     try {
       JsonFormat.parser().merge(rawResponse, response);
     } catch (InvalidProtocolBufferException e) {
-      throw new AmazonGameLiftException("Received a malformed session response");
+      throw new AmazonGameLiftServerException("Received a malformed session response", e);
     }
 
     DescribePlayerSessionsResult result = new DescribePlayerSessionsResult();
@@ -309,7 +310,8 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
     Sdk.BackfillMatchmakingRequest.Builder builder = Sdk.BackfillMatchmakingRequest.newBuilder();
     if (request.getTicketId() != null) builder.setTicketId(request.getTicketId());
     if (request.getGameSessionArn() != null) builder.setGameSessionArn(request.getGameSessionArn());
-    if (request.getConfigurationName() != null)
+    if (!builder.hasGameSessionArn()) builder.setGameSessionArn(gameSessionId);
+    if (request.getConfigurationName() != null && gameSessionId != null)
       builder.setMatchmakingConfigurationArn(request.getConfigurationName());
     if (request.getPlayers() != null && !request.getPlayers().isEmpty()) {
       // TODO: add setPlayers support
@@ -327,6 +329,8 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
     Sdk.StopMatchmakingRequest.Builder builder = Sdk.StopMatchmakingRequest.newBuilder();
     if (request.getTicketId() != null) builder.setTicketId(request.getTicketId());
     if (request.getGameSessionArn() != null) builder.setGameSessionArn(request.getGameSessionArn());
+    if (!builder.hasGameSessionArn() && gameSessionId != null)
+      builder.setGameSessionArn(gameSessionId);
     if (request.getConfigurationName() != null)
       builder.setMatchmakingConfigurationArn(request.getConfigurationName());
 
@@ -345,39 +349,59 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
   }
 
   private String sendMessage(Message message) {
-    String messageType = message.getDescriptorForType().getFullName();
+    CompletableFuture<String> response = new CompletableFuture<>();
+
     logger.log(
-        Level.FINE, String.format("Sending socket %s message with %s", messageType, message));
-
-    CountDownLatch latch = new CountDownLatch(1);
-    AtomicReference<String> response = new AtomicReference<>();
-    Ack ack =
-        (Object... objects) -> {
-          if (objects.length == 0 || objects[0] == null) {
-            logger.log(
-                Level.FINE,
-                String.format("Received an empty response from socket %s message", messageType));
-            return;
-          }
-
-          boolean ok = Boolean.valueOf(objects[0].toString());
-          if (ok) {
-            response.set(objects[1].toString());
-            latch.countDown();
-          }
-        };
-
-    socket.emit(messageType, message.toByteArray(), ack);
+        Level.FINE,
+        String.format(
+            "Sending socket %s request: %s", message.getDescriptorForType().getName(), message));
+    socket.emit(
+        message.getDescriptorForType().getFullName(),
+        message.toByteArray(),
+        (Ack) responseData -> receiveMessage(responseData, response));
 
     try {
-      if (latch.await(5, TimeUnit.SECONDS)) {
-        return response.get();
-      }
-    } catch (InterruptedException e) {
-      // Fallthrough to become a timeout
+      return response.get(5, TimeUnit.SECONDS);
+    } catch (ExecutionException e) {
+      Throwable cause = e.getCause();
+      throw cause instanceof AmazonGameLiftServerException
+          ? (AmazonGameLiftServerException) cause
+          : new AmazonGameLiftServerException("Unhandled socket response", cause);
+    } catch (InterruptedException | TimeoutException e) {
+      throw new AmazonGameLiftServerException("Timeout socket response", e);
+    }
+  }
+
+  private void receiveMessage(Object[] responseData, CompletableFuture<String> response) {
+    if (responseData.length < 2) {
+      response.completeExceptionally(
+          new AmazonGameLiftServerException(
+              String.format("Unrecognized socket response: %s", Lists.newArrayList(responseData))));
+      return;
     }
 
-    throw new AmazonGameLiftException("Did not receive a response from the GameLift server");
+    boolean ok = Boolean.valueOf(responseData[0].toString());
+    String data = responseData[1].toString();
+    logger.log(
+        Level.FINE, String.format("Received %s socket response: %s", ok ? "ok" : "bad", data));
+
+    try {
+      Sdk.GameLiftResponse.Builder builder = Sdk.GameLiftResponse.newBuilder();
+      JsonFormat.parser().merge(data, builder);
+      Sdk.GameLiftResponse status = builder.build();
+
+      if (status.getStatus() == Sdk.GameLiftResponseStatus.OK) {
+        response.complete(status.getResponseData());
+      } else {
+        response.completeExceptionally(
+            new AmazonGameLiftServerException(
+                String.format(
+                    "Received %s socket response: %s",
+                    status.getStatus(), status.getErrorMessage())));
+      }
+    } catch (InvalidProtocolBufferException e) {
+      response.complete(data);
+    }
   }
 
   // TODO: add creatorId, fleetArn, gameProperties, status, statusReason,
@@ -453,7 +477,7 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
               .withGameSession(gameSession(response.getGameSession()));
 
       if (!Objects.equals(gameSessionId, update.getGameSession().getGameSessionId())) {
-        throw new AmazonGameLiftException("Received an update from an unknown game session");
+        throw new AmazonGameLiftServerException("Received an update from an unknown game session");
       }
 
       executorService.submit(() -> processParameters.getGameSessionUpdate().accept(update));
@@ -462,9 +486,12 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
 
   private class SocketListener implements Emitter.Listener {
     private final String name;
+    private final Object[] payload;
 
     private SocketListener(String name, Socket socket) {
       this.name = name;
+      this.payload = new Object[] {true, null};
+
       socket.on(name, this);
     }
 
@@ -475,9 +502,9 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
       boolean ack = false;
 
       if (objects.length == 0) {
-        logger.log(Level.FINE, String.format("Received socket %s event", name));
+        logger.log(Level.FINE, String.format("Received socket %s message", name));
       } else {
-        logger.log(Level.FINE, String.format("Received socket %s event with %s", name, objects[0]));
+        logger.log(Level.FINE, String.format("Received socket %s message: %s", name, objects[0]));
       }
 
       try {
@@ -486,12 +513,14 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
           ack = true;
         }
       } catch (Throwable t) {
-        logger.log(Level.SEVERE, String.format("Unable to process socket %s event", name), t);
+        logger.log(Level.SEVERE, String.format("Unable to process socket %s message", name), t);
       }
 
       if (objects.length > 1) {
         logger.log(
-            Level.FINE, String.format("Sending %s ack in response to socket %s event", ack, name));
+            Level.FINE,
+            String.format(
+                "Sending %sack in response to socket %s message", ack ? "" : "un-", name));
 
         ((Ack) objects[1]).call(ack);
       }

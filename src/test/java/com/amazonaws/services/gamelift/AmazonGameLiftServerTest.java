@@ -3,6 +3,7 @@ package com.amazonaws.services.gamelift;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.amazonaws.client.builder.AwsClientBuilder;
@@ -17,10 +18,14 @@ import com.amazonaws.services.gamelift.model.PlayerSessionCreationPolicy;
 import com.amazonaws.services.gamelift.model.PlayerSessionStatus;
 import com.amazonaws.services.gamelift.model.ProcessParameters;
 import com.amazonaws.services.gamelift.model.StartMatchBackfillRequest;
-import com.amazonaws.services.gamelift.model.StopMatchBackfillRequest;
 import com.amazonaws.services.gamelift.model.UpdateGameSession;
 import java.util.Collections;
 import java.util.concurrent.TimeoutException;
+import java.util.logging.ConsoleHandler;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -40,13 +45,28 @@ class AmazonGameLiftServerTest {
   private UpdateGameSession updateGameSession;
 
   @BeforeAll
-  void beforeAll() {
+  void setUp() {
     client =
         AmazonGameLiftClientBuilder.standard()
             .withEndpointConfiguration(
                 new AwsClientBuilder.EndpointConfiguration("http://127.0.0.1:8080", null))
             .build();
     server = AmazonGameLiftServer.get();
+
+    Handler handler = new ConsoleHandler();
+    handler.setLevel(Level.ALL);
+    Logger logger = Logger.getGlobal();
+    logger.setLevel(Level.ALL);
+    logger.addHandler(handler);
+
+    server.setLogger(logger);
+  }
+
+  @AfterAll
+  void tearDown() {
+    server.destroy();
+
+    assertFalse(server.initSdk(), "destroy did not reject future attempts to initialize");
   }
 
   @Order(1)
@@ -141,6 +161,16 @@ class AmazonGameLiftServerTest {
 
   @Order(7)
   @Test
+  void testStartMatchBackfill() {
+    assertThrows(
+        AmazonGameLiftServerException.class,
+        () ->
+            server.startMatchBackfill(new StartMatchBackfillRequest().withTicketId("goldenticket")),
+        "match backfill did not return 400 error");
+  }
+
+  @Order(8)
+  @Test
   void testTerminateGameSession() {
     server.terminateGameSession();
 
@@ -151,31 +181,19 @@ class AmazonGameLiftServerTest {
     assertNull(server.getGameSessionId(), "game session id was not cleared");
   }
 
-  @Order(8)
+  @Order(9)
   @Test
   void testProcessReadyAgain() {
     testProcessReady();
   }
 
-  @Order(9)
+  @Order(10)
   @Test
   void testUpdatePlayerSessionCreationPolicy() {
     server.updatePlayerSessionCreationPolicy(PlayerSessionCreationPolicy.DENY_ALL);
   }
 
-  @Order(10)
-  @Test
-  void testStartMatchBackfill() {
-    server.startMatchBackfill(new StartMatchBackfillRequest().withTicketId("goldenticket"));
-  }
-
   @Order(11)
-  @Test
-  void testStopMatchBackfill() {
-    server.stopMatchBackfill(new StopMatchBackfillRequest().withTicketId("goldenticket"));
-  }
-
-  @Order(12)
   @Test
   void testProcessEnding() {
     server.processEnding();
@@ -184,14 +202,6 @@ class AmazonGameLiftServerTest {
         GameSessionStatus.TERMINATED.name(),
         gameSession().getStatus(),
         "game session did not terminate");
-  }
-
-  @Order(13)
-  @Test
-  void testDestroy() {
-    server.destroy();
-
-    assertFalse(server.initSdk(), "destroy did not reject future attempts to initialize");
   }
 
   private GameSession gameSession() {
