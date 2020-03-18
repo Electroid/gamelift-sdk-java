@@ -8,7 +8,7 @@ import com.amazonaws.services.gamelift.model.PlayerSessionCreationPolicy;
 import com.amazonaws.services.gamelift.model.ProcessParameters;
 import com.amazonaws.services.gamelift.model.StartMatchBackfillRequest;
 import com.amazonaws.services.gamelift.model.StopMatchBackfillRequest;
-import java.util.concurrent.TimeoutException;
+import java.util.logging.Logger;
 
 /**
  * Interface for creating an Amazon GameLift custom server.
@@ -48,6 +48,13 @@ public interface AmazonGameLiftServer {
   }
 
   /**
+   * Set the logger for the server.
+   *
+   * @param logger A logger.
+   */
+  void setLogger(Logger logger);
+
+  /**
    * Get the current sdk version.
    *
    * @return The sdk version.
@@ -57,9 +64,9 @@ public interface AmazonGameLiftServer {
   /**
    * Initialize a connection to the GameLift server.
    *
-   * @throws TimeoutException If the GameLift server could not be reached.
+   * @return If the GameLift server is connected.
    */
-  void initSdk() throws TimeoutException;
+  boolean initSdk();
 
   /**
    * Mark as ready to accept a new game session.

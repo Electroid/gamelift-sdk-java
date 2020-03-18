@@ -14,6 +14,8 @@ import com.amazonaws.services.gamelift.model.ProcessParameters;
 import com.amazonaws.services.gamelift.model.StartMatchBackfillRequest;
 import com.amazonaws.services.gamelift.model.StopMatchBackfillRequest;
 import com.amazonaws.services.gamelift.model.UpdateGameSession;
+import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
 import com.google.protobuf.util.JsonFormat;
@@ -29,10 +31,12 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
 
@@ -41,7 +45,9 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
   private static final String SDK_VERSION = "3.4.0";
   private static final String SDK_LANGUAGE = "Java";
 
+  private Logger logger;
   private Socket socket;
+  private ScheduledExecutorService executorService;
   private ScheduledFuture healthCheck;
   private ProcessParameters processParameters;
   private String gameSessionId;
@@ -52,6 +58,19 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
   }
 
   private AmazonGameLiftServerImpl(String hostname, int port, String processId) {
+    String className = AmazonGameLiftServer.class.getSimpleName();
+    setLogger(Logger.getLogger(className));
+
+    executorService =
+        Executors.newSingleThreadScheduledExecutor(
+            new ThreadFactoryBuilder()
+                .setThreadFactory(Executors.defaultThreadFactory())
+                .setNameFormat(className)
+                .setUncaughtExceptionHandler(
+                    (Thread thread, Throwable throwable) ->
+                        logger.log(Level.SEVERE, "Caught an unhandled exception", throwable))
+                .build());
+
     IO.Options options = new IO.Options();
     options.query =
         String.format("sdkVersion=%s&sdkLanguage=%s&pID=%s", SDK_VERSION, SDK_LANGUAGE, processId);
@@ -67,9 +86,24 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
       throw new IllegalArgumentException(e);
     }
 
-    socket.on("StartGameSession", new StartGameSessionListener());
-    socket.on("UpdateGameSession", new UpdateGameSessionListener());
-    socket.on("TerminateProcess", new TerminateProcessListener());
+    for (String event :
+        Lists.newArrayList(
+            Socket.EVENT_CONNECT,
+            Socket.EVENT_CONNECT_ERROR,
+            Socket.EVENT_CONNECT_TIMEOUT,
+            Socket.EVENT_DISCONNECT,
+            Socket.EVENT_ERROR)) {
+      new SocketListener(event, socket);
+    }
+
+    new StartGameSessionListener(socket);
+    new UpdateGameSessionListener(socket);
+    new TerminateProcessListener(socket);
+  }
+
+  @Override
+  public void setLogger(Logger logger) {
+    this.logger = checkNotNull(logger, "logger is null");
   }
 
   @Override
@@ -78,22 +112,25 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
   }
 
   @Override
-  public void initSdk() throws TimeoutException {
-    if (socket.connected()) return;
+  public boolean initSdk() {
+    if (executorService.isShutdown()) return false;
+    if (socket.connected()) return true;
 
     CountDownLatch latch = new CountDownLatch(1);
     socket.once(Socket.EVENT_CONNECT, data -> latch.countDown());
+    socket.once(Socket.EVENT_CONNECT_TIMEOUT, data -> latch.countDown());
+    socket.once(Socket.EVENT_CONNECT_ERROR, data -> latch.countDown());
+
     socket.connect();
 
     try {
       if (latch.await(5, TimeUnit.SECONDS)) {
-        return;
+        return socket.connected();
       }
     } catch (InterruptedException e) {
-      // Fallthrough to become a timeout
     }
 
-    throw new TimeoutException();
+    return false;
   }
 
   private void checkInitialized() {
@@ -110,6 +147,7 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
     try {
       ok = processParameters.getHealthCheck().get();
     } catch (Throwable t) {
+      logger.log(Level.WARNING, "Unable to process health check", t);
       ok = false;
     }
 
@@ -128,11 +166,8 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
             .build());
     this.processParameters = processParameters;
 
-    if (healthCheck == null || healthCheck.isDone()) {
-      healthCheck =
-          Executors.newSingleThreadScheduledExecutor()
-              .scheduleAtFixedRate(this::reportHealth, 0L, 15L, TimeUnit.SECONDS);
-    }
+    if (healthCheck != null) healthCheck.cancel(true);
+    healthCheck = executorService.scheduleAtFixedRate(this::reportHealth, 0L, 1L, TimeUnit.MINUTES);
   }
 
   @Override
@@ -149,6 +184,7 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
 
   private void checkGameSession() {
     checkInitialized();
+
     if (gameSessionId == null) {
       throw new IllegalStateException("Game session is not bound (called readyProcess() yet?)");
     }
@@ -304,24 +340,23 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
 
   @Override
   public void destroy() {
-    try {
-      if (gameSessionId != null) terminateGameSession();
-      processEnding();
-    } catch (Throwable t) {
-      // Try to terminate gracefully, but silence any errors
-    }
-
-    if (healthCheck != null) healthCheck.cancel(true);
+    executorService.shutdown();
     socket.disconnect();
-    terminationTime = System.currentTimeMillis();
   }
 
   private String sendMessage(Message message) {
+    String messageType = message.getDescriptorForType().getFullName();
+    logger.log(
+        Level.FINE, String.format("Sending socket %s message with %s", messageType, message));
+
     CountDownLatch latch = new CountDownLatch(1);
     AtomicReference<String> response = new AtomicReference<>();
     Ack ack =
         (Object... objects) -> {
-          if (objects.length < 1 || objects[0] == null) {
+          if (objects.length == 0 || objects[0] == null) {
+            logger.log(
+                Level.FINE,
+                String.format("Received an empty response from socket %s message", messageType));
             return;
           }
 
@@ -332,7 +367,7 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
           }
         };
 
-    socket.emit(message.getDescriptorForType().getFullName(), message.toByteArray(), ack);
+    socket.emit(messageType, message.toByteArray(), ack);
 
     try {
       if (latch.await(5, TimeUnit.SECONDS)) {
@@ -347,7 +382,7 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
 
   // TODO: add creatorId, fleetArn, gameProperties, status, statusReason,
   // currentPlayerSessionCount, creationTime, and terminationTime support
-  GameSession gameSession(Sdk.GameSession sdkGame) {
+  private GameSession gameSession(Sdk.GameSession sdkGame) {
     GameSession game = new GameSession();
 
     if (sdkGame.hasGameSessionId()) game.setGameSessionId(sdkGame.getGameSessionId());
@@ -363,7 +398,11 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
     return game;
   }
 
-  class TerminateProcessListener extends SocketListener {
+  private class TerminateProcessListener extends SocketListener {
+    private TerminateProcessListener(Socket socket) {
+      super("ProcessTerminate", socket);
+    }
+
     @Override
     void onResponse(String rawResponse) {
       Sdk.TerminateProcess.Builder response = Sdk.TerminateProcess.newBuilder();
@@ -375,11 +414,15 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
         terminationTime = System.currentTimeMillis();
       }
 
-      Executors.newCachedThreadPool().submit(() -> processParameters.getProcessTerminate().run());
+      executorService.submit(processParameters.getProcessTerminate());
     }
   }
 
-  class StartGameSessionListener extends SocketListener {
+  private class StartGameSessionListener extends SocketListener {
+    private StartGameSessionListener(Socket socket) {
+      super("StartGameSession", socket);
+    }
+
     @Override
     void onResponse(String rawResponse) throws InvalidProtocolBufferException {
       Sdk.ActivateGameSession.Builder response = Sdk.ActivateGameSession.newBuilder();
@@ -388,12 +431,16 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
       GameSession game =
           gameSession(response.getGameSession()).withStatus(GameSessionStatus.ACTIVATING);
       gameSessionId = game.getGameSessionId();
-      Executors.newCachedThreadPool()
-          .submit(() -> processParameters.getGameSessionStart().accept(game));
+
+      executorService.submit(() -> processParameters.getGameSessionStart().accept(game));
     }
   }
 
-  class UpdateGameSessionListener extends StartGameSessionListener {
+  private class UpdateGameSessionListener extends SocketListener {
+    private UpdateGameSessionListener(Socket socket) {
+      super("UpdateGameSession", socket);
+    }
+
     @Override
     void onResponse(String rawResponse) throws InvalidProtocolBufferException {
       Sdk.UpdateGameSession.Builder response = Sdk.UpdateGameSession.newBuilder();
@@ -406,31 +453,47 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
               .withGameSession(gameSession(response.getGameSession()));
 
       if (!Objects.equals(gameSessionId, update.getGameSession().getGameSessionId())) {
-        throw new AmazonGameLiftException("Received an update from a different game session");
+        throw new AmazonGameLiftException("Received an update from an unknown game session");
       }
 
-      Executors.newCachedThreadPool()
-          .submit(() -> processParameters.getGameSessionUpdate().accept(update));
+      executorService.submit(() -> processParameters.getGameSessionUpdate().accept(update));
     }
   }
 
-  abstract class SocketListener implements Emitter.Listener {
-    abstract void onResponse(String rawResponse) throws InvalidProtocolBufferException;
+  private class SocketListener implements Emitter.Listener {
+    private final String name;
+
+    private SocketListener(String name, Socket socket) {
+      this.name = name;
+      socket.on(name, this);
+    }
+
+    void onResponse(String data) throws Throwable {}
 
     @Override
     public void call(Object... objects) {
-      Ack ack = objects.length > 1 ? (Ack) objects[1] : (Object... o) -> {};
+      boolean ack = false;
 
-      if (processParameters == null) {
-        ack.call(false);
-        return;
+      if (objects.length == 0) {
+        logger.log(Level.FINE, String.format("Received socket %s event", name));
+      } else {
+        logger.log(Level.FINE, String.format("Received socket %s event with %s", name, objects[0]));
       }
 
       try {
-        onResponse(objects[0].toString());
-        ack.call(true);
-      } catch (InvalidProtocolBufferException t) {
-        ack.call(false);
+        if (processParameters != null) {
+          onResponse(objects[0].toString());
+          ack = true;
+        }
+      } catch (Throwable t) {
+        logger.log(Level.SEVERE, String.format("Unable to process socket %s event", name), t);
+      }
+
+      if (objects.length > 1) {
+        logger.log(
+            Level.FINE, String.format("Sending %s ack in response to socket %s event", ack, name));
+
+        ((Ack) objects[1]).call(ack);
       }
     }
   }

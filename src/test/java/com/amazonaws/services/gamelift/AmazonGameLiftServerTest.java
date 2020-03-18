@@ -1,7 +1,7 @@
 package com.amazonaws.services.gamelift;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -52,8 +52,7 @@ class AmazonGameLiftServerTest {
   @Order(1)
   @Test
   void testInitSdk() throws TimeoutException {
-    server.initSdk();
-
+    assertTrue(server.initSdk(), "sdk initialization did not succeed");
     assertEquals("3.4.0", server.getSdkVersion(), "sdk version is not updated");
     assertEquals(0L, server.getTerminationTime(), "termination time does not start with 0");
     assertNull(server.getGameSessionId(), "game session id does not start with null");
@@ -149,6 +148,7 @@ class AmazonGameLiftServerTest {
         GameSessionStatus.TERMINATED.name(),
         gameSession().getStatus(),
         "game session was not terminated");
+    assertNull(server.getGameSessionId(), "game session id was not cleared");
   }
 
   @Order(8)
@@ -191,7 +191,7 @@ class AmazonGameLiftServerTest {
   void testDestroy() {
     server.destroy();
 
-    assertNotEquals(0L, server.getTerminationTime(), "termination time did not change from 0");
+    assertFalse(server.initSdk(), "destroy did not reject future attempts to initialize");
   }
 
   private GameSession gameSession() {

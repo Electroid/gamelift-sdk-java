@@ -28,7 +28,7 @@
 
     <groupId>app.ashcon.gamelift</groupId>
     <artifactId>gamelift-sdk</artifactId>
-    <version>3.4.0.0</version>
+    <version>3.4.0.1</version>
     <packaging>jar</packaging>
 
     <dependencies>
@@ -68,32 +68,6 @@
                 <version>3.8.1</version>
             </plugin>
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-shade-plugin</artifactId>
-                <version>3.2.2</version>
-                <configuration>
-                    <createDependencyReducedPom>false</createDependencyReducedPom>
-                    <minimizeJar>true</minimizeJar>
-                    <filters>
-                        <filter>
-                            <artifact>*:*</artifact>
-                            <excludes>
-                                <exclude>module-info.class</exclude>
-                                <exclude>META-INF/**</exclude>
-                            </excludes>
-                        </filter>
-                    </filters>
-                </configuration>
-                <executions>
-                    <execution>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>shade</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
                 <groupId>com.coveo</groupId>
                 <artifactId>fmt-maven-plugin</artifactId>
                 <version>2.9</version>
@@ -119,7 +93,6 @@
                             <goal>jar</goal>
                         </goals>
                         <configuration>
-                            <additionalparam>-Xdoclint:none</additionalparam>
                             <additionalOptions>-Xdoclint:none</additionalOptions>
                             <additionalJOption>-Xdoclint:none</additionalJOption>
                             <includeDependencySources>true</includeDependencySources>
