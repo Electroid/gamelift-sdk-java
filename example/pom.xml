@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <properties>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.pluginClass>app.ashcon.gamelift.GameLiftPlugin</project.pluginClass>
+    </properties>
+
+    <name>GameLift Minecraft</name>
+    <description>Amazon GameLift integration for Minecraft servers.</description>
+    <inceptionYear>2020</inceptionYear>
+
+    <url>https://github.com/Electroid/gamelift-sdk-java/tree/master/example</url>
+    <scm>
+        <connection>scm:git:git://github.com/Electroid/gamelift-sdk-java</connection>
+    </scm>
+
+    <groupId>app.ashcon.gamelift</groupId>
+    <artifactId>gamelift-bukkit</artifactId>
+    <version>3.4.0.3</version>
+    <packaging>jar</packaging>
+
+    <repositories>
+        <repository>
+            <id>spigot-repo</id>
+            <url>https://hub.spigotmc.org/nexus/content/repositories/snapshots</url>
+        </repository>
+    </repositories>
+
+    <distributionManagement>
+        <repository>
+            <id>ashcon-repo</id>
+            <url>https://repo.ashcon.app/content/repositories/releases</url>
+        </repository>
+    </distributionManagement>
+
+    <dependencies>
+        <dependency>
+            <groupId>app.ashcon.gamelift</groupId>
+            <artifactId>gamelift-sdk</artifactId>
+            <version>3.4.0.3</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bukkit</groupId>
+            <artifactId>bukkit</artifactId>
+            <version>1.8-R0.1-SNAPSHOT</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.8.1</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.2.2</version>
+                <configuration>
+                    <createDependencyReducedPom>false</createDependencyReducedPom>
+                    <minimizeJar>true</minimizeJar>
+                    <filters>
+                        <filter>
+                            <artifact>*:*</artifact>
+                            <excludes>
+                                <exclude>module-info.class</exclude>
+                                <exclude>META-INF/**</exclude>
+                            </excludes>
+                        </filter>
+                    </filters>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>com.coveo</groupId>
+                <artifactId>fmt-maven-plugin</artifactId>
+                <version>2.9</version>
+                <configuration>
+                    <style>google</style>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>format</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

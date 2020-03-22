@@ -33,3 +33,7 @@ AmazonGameLiftClientBuilder.defaultClient().createGameSession( ... );
 // Server side: responds to AWS events and actually hosts games
 AmazonGameLiftServer.get().initSdk();
 ```
+
+### Example
+
+An [example](example/src/main/java/app/ashcon/gamelift/GameLiftPlugin.java) integration between GameLift and Minecraft is also provided.
