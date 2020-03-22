@@ -416,7 +416,7 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
     if (sdkGame.hasIpAddress()) game.setIpAddress(sdkGame.getIpAddress());
     if (sdkGame.hasPort()) game.setPort(sdkGame.getPort());
     if (sdkGame.hasName()) game.setName(sdkGame.getName());
-    if (sdkGame.hasGameSessionData()) game.setName(sdkGame.getGameSessionData());
+    if (sdkGame.hasGameSessionData()) game.setGameSessionData(sdkGame.getGameSessionData());
     if (sdkGame.hasMatchmakerData()) game.setMatchmakerData(sdkGame.getMatchmakerData());
 
     return game;
@@ -486,11 +486,9 @@ class AmazonGameLiftServerImpl implements AmazonGameLiftServer {
 
   private class SocketListener implements Emitter.Listener {
     private final String name;
-    private final Object[] payload;
 
     private SocketListener(String name, Socket socket) {
       this.name = name;
-      this.payload = new Object[] {true, null};
 
       socket.on(name, this);
     }

@@ -17,7 +17,7 @@ Java port of the server and client-side Amazon GameLift SDK.
     <dependency>
         <groupId>app.ashcon.gamelift</groupId>
         <artifactId>gamelift-sdk</artifactId>
-        <version>3.4.0.0</version>
+        <version>3.4.0.3</version>
     </dependency>
 </dependencies>
 ```

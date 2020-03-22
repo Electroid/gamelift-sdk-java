@@ -94,7 +94,8 @@ class AmazonGameLiftServerTest {
             .createGameSession(
                 new CreateGameSessionRequest()
                     .withFleetId("fleet-123")
-                    .withMaximumPlayerSessionCount(1))
+                    .withMaximumPlayerSessionCount(1)
+                    .withGameSessionData("data"))
             .getGameSession();
     assertEquals(
         newGameSession, gameSession, "callback game session does not match api game session");

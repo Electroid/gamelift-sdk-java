@@ -28,7 +28,7 @@
 
     <groupId>app.ashcon.gamelift</groupId>
     <artifactId>gamelift-sdk</artifactId>
-    <version>3.4.0.2</version>
+    <version>3.4.0.3</version>
     <packaging>jar</packaging>
 
     <dependencies>
